@@ -15,7 +15,59 @@ export function createPlayer(role = 'human') {
     stone: 0,
     essence: 0,
     level: 1,
+    insideSettlement: false,
   };
+}
+
+export const SETTLEMENT_COST = { wood: 8, stone: 6 };
+
+export function createResource(type, x, y) {
+  return {
+    type,
+    x,
+    y,
+    state: type === 'tree' ? 'standing' : 'whole',
+    hits: 0,
+    stateChangedAt: 0,
+    respawnAt: 0,
+    shakeUntil: 0,
+  };
+}
+
+export function strikeResource(resource, now = 0) {
+  if (resource.state === 'falling' || resource.state === 'destroyed') return { hit: false };
+  resource.hits += 1;
+  resource.shakeUntil = now + 160;
+
+  if (resource.type === 'tree' && resource.state === 'standing' && resource.hits >= 3) {
+    resource.state = 'falling';
+    resource.hits = 0;
+    resource.stateChangedAt = now;
+    return { hit: true, felled: true };
+  }
+
+  if (resource.type === 'tree' && resource.state === 'standing') return { hit: true };
+
+  const requiredHits = resource.type === 'tree' ? 2 : 3;
+  if (resource.hits >= requiredHits) {
+    resource.state = 'destroyed';
+    resource.hits = 0;
+    resource.stateChangedAt = now;
+    resource.respawnAt = now + 12000;
+    return { hit: true, collected: resource.type === 'tree' ? { wood: 4 } : { stone: 3 } };
+  }
+  return { hit: true };
+}
+
+export function updateResourceState(resource, now) {
+  if (resource.state === 'falling' && now - resource.stateChangedAt >= 650) {
+    resource.state = 'fallen';
+    resource.stateChangedAt = now;
+  } else if (resource.state === 'destroyed' && now >= resource.respawnAt) {
+    resource.state = resource.type === 'tree' ? 'standing' : 'whole';
+    resource.hits = 0;
+  }
+  return resource.state;
 }
 
 export function cycleState(elapsed, duration = 120) {
@@ -32,5 +84,16 @@ export function spendCampfire(player) {
   if (!canBuildCampfire(player)) return false;
   player.wood -= 4;
   player.stone -= 2;
+  return true;
+}
+
+export function canBuildSettlement(player) {
+  return player.role === 'human' && player.wood >= SETTLEMENT_COST.wood && player.stone >= SETTLEMENT_COST.stone;
+}
+
+export function spendSettlement(player) {
+  if (!canBuildSettlement(player)) return false;
+  player.wood -= SETTLEMENT_COST.wood;
+  player.stone -= SETTLEMENT_COST.stone;
   return true;
 }
