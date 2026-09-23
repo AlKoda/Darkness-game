@@ -21,6 +21,10 @@ are merged.
 npm run dev
 ```
 
+Deployment platforms that launch Node applications with `npm start` are also
+supported; that command creates and serves the production build on the host's
+`PORT`.
+
 Choose **Human** or **Monster**, move with WASD/arrow keys, and interact with nearby resources using **E**. Trees must be chopped until they fall, then chopped again before their wood is collected; boulders also take several strikes. Humans can quick-build a protective campfire with **1**, found a permanent settlement with **2**, raise a sweeping-light watchtower with **3**, or place a stone wall with **4**. New structures are placed in the direction you last moved. Stand near a settlement's door and press **E** to enter, rest, and heal.
 
 The project has no runtime dependencies. The included Node development server runs at `http://localhost:4173`.
