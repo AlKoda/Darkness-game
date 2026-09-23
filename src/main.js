@@ -1,4 +1,3 @@
-import './style.css';
 import { BUILDINGS, WORLD_SIZE, canAfford, clamp, createPlayer, createResource, cycleState, spendBuilding, spendCampfire, spendSettlement, strikeResource, updateResourceState } from './systems.js';
 
 const canvas = document.querySelector('#game');
