@@ -1,5 +1,5 @@
 import './style.css';
-import { WORLD_SIZE, clamp, createPlayer, createResource, cycleState, spendCampfire, spendSettlement, strikeResource, updateResourceState } from './systems.js';
+import { BUILDINGS, WORLD_SIZE, canAfford, clamp, createPlayer, createResource, cycleState, spendBuilding, spendCampfire, spendSettlement, strikeResource, updateResourceState } from './systems.js';
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
@@ -10,7 +10,7 @@ const ui = {
   role: document.querySelector('#role-label'), portrait: document.querySelector('#portrait'), health: document.querySelector('#health-bar'),
   wood: document.querySelector('#wood'), stone: document.querySelector('#stone'), essence: document.querySelector('#essence'), essenceWrap: document.querySelector('#essence-wrap'),
   cycle: document.querySelector('#cycle-label'), cycleBar: document.querySelector('#cycle-bar'), clock: document.querySelector('#clock'),
-  objective: document.querySelector('#objective'),
+  objective: document.querySelector('#objective'), buildbar: document.querySelector('#buildbar'),
 };
 
 let player = null;
@@ -19,6 +19,9 @@ let lastTime = performance.now();
 let camera = { x: 0, y: 0 };
 let fires = [];
 let settlements = [];
+let watchtowers = [];
+let walls = [];
+let facing = { x: 0, y: 1 };
 let action = { type: 'idle', until: 0 };
 const keys = new Set();
 const particles = Array.from({ length: 70 }, (_, i) => ({ x: (i * 349) % WORLD_SIZE, y: (i * 197) % WORLD_SIZE, s: i % 3 + 1 }));
@@ -44,6 +47,7 @@ function start(role) {
   ui.portrait.textContent = role === 'human' ? 'H' : 'M';
   ui.portrait.className = `portrait ${role}`;
   ui.essenceWrap.style.display = role === 'monster' ? '' : 'none';
+  ui.buildbar.classList.toggle('hidden', role !== 'human');
   showEvent(role === 'human' ? 'A FIRE AWAITS' : 'THE HUNT BEGINS', role === 'human' ? 'Gather 4 wood and 2 stone.' : 'Absorb essence. Evolve.');
 }
 
@@ -98,12 +102,31 @@ function buildSettlement() {
   showEvent('SETTLEMENT FOUNDED', 'You are home. Press E by the door to enter or leave.');
 }
 
+function buildDefense(type) {
+  if (!player || player.role !== 'human') return;
+  const cost = BUILDINGS[type];
+  if (!spendBuilding(player, type)) {
+    showEvent('MORE MATERIALS NEEDED', `${type === 'watchtower' ? 'Watchtower' : 'Stone wall'} requires ${cost.wood} wood + ${cost.stone} stone.`);
+    return;
+  }
+  const x = clamp(player.x + facing.x * 62, 50, WORLD_SIZE - 50);
+  const y = clamp(player.y + facing.y * 62, 50, WORLD_SIZE - 50);
+  if (type === 'watchtower') {
+    watchtowers.push({ x, y, phase: performance.now() % 6000 });
+    showEvent('WATCHTOWER RAISED', 'Its lantern sweeps the darkness and keeps you safe.');
+  } else {
+    walls.push({ x, y, vertical: Math.abs(facing.x) > Math.abs(facing.y) });
+    showEvent('WALL FORTIFIED', 'A sturdy barrier now guards this approach.');
+  }
+}
+
 function update(dt, now) {
   if (!player) return;
   resources.forEach(resource => updateResourceState(resource, now));
   let dx = Number(keys.has('d') || keys.has('arrowright')) - Number(keys.has('a') || keys.has('arrowleft'));
   let dy = Number(keys.has('s') || keys.has('arrowdown')) - Number(keys.has('w') || keys.has('arrowup'));
   if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+  if (dx || dy) facing = { x: dx, y: dy };
   if (!player.insideSettlement) {
     player.x = clamp(player.x + dx * player.speed * dt, 30, WORLD_SIZE - 30);
     player.y = clamp(player.y + dy * player.speed * dt, 30, WORLD_SIZE - 30);
@@ -115,10 +138,11 @@ function update(dt, now) {
 
   const cycle = cycleState((now - startedAt) / 1000);
   if (cycle.night && player.role === 'human') {
-    const safe = player.insideSettlement || fires.some(f => Math.hypot(f.x - player.x, f.y - player.y) < 145);
+    const safe = player.insideSettlement || fires.some(f => Math.hypot(f.x - player.x, f.y - player.y) < 145) || watchtowers.some(t => Math.hypot(t.x - player.x, t.y - player.y) < 190);
     if (!safe) player.health = Math.max(0, player.health - dt * 2.5);
   }
   ui.health.style.width = `${player.health}%`; ui.wood.textContent = player.wood; ui.stone.textContent = player.stone; ui.essence.textContent = player.essence;
+  document.querySelectorAll('[data-build]').forEach(button => button.classList.toggle('unaffordable', !canAfford(player, button.dataset.build)));
   ui.cycle.textContent = cycle.night ? 'NIGHT HAS FALLEN' : cycle.progress > .4 ? 'DUSK APPROACHES' : 'DAYLIGHT';
   ui.cycleBar.style.width = `${cycle.progress * 100}%`;
   ui.clock.textContent = `${String(Math.floor(cycle.secondsLeft / 60)).padStart(2, '0')}:${String(cycle.secondsLeft % 60).padStart(2, '0')}`;
@@ -163,6 +187,23 @@ function drawSettlement(home) {
   rect(home.x - 48, home.y + 42, 16, 9, '#373f35'); rect(home.x + 32, home.y + 42, 16, 9, '#373f35');
 }
 
+function drawWall(wall) {
+  ctx.save(); ctx.translate(wall.x, wall.y); if (wall.vertical) ctx.rotate(Math.PI / 2);
+  rect(-31, -8, 62, 15, '#4b4c43'); rect(-27, -13, 17, 7, '#898477'); rect(-7, -13, 17, 7, '#77756a'); rect(13, -13, 14, 7, '#979083');
+  rect(-29, -4, 19, 8, '#69685e'); rect(-7, -4, 18, 8, '#858176'); rect(14, -4, 40, 8, '#5a5b52'); rect(-31, 7, 62, 4, '#2a302d');
+  ctx.restore();
+}
+
+function drawWatchtower(tower, now) {
+  const angle = now / 1900 + tower.phase / 1000;
+  ctx.save(); ctx.translate(tower.x, tower.y);
+  ctx.fillStyle = 'rgba(255,202,72,.13)'; ctx.beginPath(); ctx.moveTo(0, -35); ctx.arc(0, -35, 125, angle - .22, angle + .22); ctx.closePath(); ctx.fill();
+  rect(-17, -31, 34, 9, '#332519'); rect(-21, -25, 42, 8, '#75502d'); rect(-14, -18, 5, 53, '#4d3827'); rect(9, -18, 5, 53, '#4d3827');
+  rect(-19, 3, 38, 4, '#7e5733'); rect(-17, 20, 34, 4, '#6a492f'); rect(-24, 34, 48, 7, '#303a31');
+  rect(-13, -43, 26, 17, '#4e321e'); rect(-18, -47, 36, 6, '#2b211a'); rect(-8, -39, 16, 9, '#edb84d'); rect(-3, -38, 6, 7, '#ffe891');
+  ctx.restore();
+}
+
 function drawPlayer(x, y, now) {
   const moving = keys.has('w') || keys.has('a') || keys.has('s') || keys.has('d') || keys.has('arrowup') || keys.has('arrowleft') || keys.has('arrowdown') || keys.has('arrowright');
   const bob = moving ? Math.round(Math.sin(now / 85) * 2) : 0;
@@ -203,14 +244,16 @@ function render(now) {
   ctx.save(); ctx.translate(-camera.x, -camera.y);
   for (const p of particles) rect(p.x, p.y, p.s, p.s, '#385146');
   resources.forEach(r => r.state !== 'destroyed' && (r.type === 'tree' ? drawTree(r, now) : drawRock(r, now)));
+  walls.forEach(drawWall);
   settlements.forEach(drawSettlement);
+  watchtowers.forEach(t => drawWatchtower(t, now));
   fires.forEach((f, i) => { ctx.fillStyle = 'rgba(239,166,70,.12)'; ctx.beginPath(); ctx.arc(f.x, f.y, 145, 0, Math.PI * 2); ctx.fill(); rect(f.x - 9, f.y + 4, 18, 5, '#5e392b'); rect(f.x - 5, f.y - 8 - (i + Math.floor(now / 250)) % 3, 10, 13, '#ef6c3d'); rect(f.x - 2, f.y - 5, 5, 8, '#ffd16b'); });
   if (player && !player.insideSettlement) { drawPlayer(player.x, player.y, now); drawPrompt(now); }
   ctx.restore();
 
   rect(0, 0, innerWidth, innerHeight, `rgba(4, 6, 14, ${nightAlpha})`);
   if (player && player.role === 'human' && cycle.night) {
-    const lights = [{ x: player.x - camera.x, y: player.y - camera.y, r: 70 }, ...fires.map(f => ({ x: f.x - camera.x, y: f.y - camera.y, r: 160 }))];
+    const lights = [{ x: player.x - camera.x, y: player.y - camera.y, r: 70 }, ...fires.map(f => ({ x: f.x - camera.x, y: f.y - camera.y, r: 160 })), ...watchtowers.map(t => ({ x: t.x - camera.x, y: t.y - camera.y - 35, r: 190 }))];
     ctx.save(); ctx.globalCompositeOperation = 'destination-out'; lights.forEach(l => { const g = ctx.createRadialGradient(l.x, l.y, 10, l.x, l.y, l.r); g.addColorStop(0, 'rgba(0,0,0,.9)'); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(l.x, l.y, l.r, 0, Math.PI * 2); ctx.fill(); }); ctx.restore();
   }
 }
@@ -219,6 +262,7 @@ function loop(now) { const dt = Math.min(.05, (now - lastTime) / 1000); lastTime
 
 document.querySelectorAll('[data-role]').forEach(button => button.addEventListener('click', () => start(button.dataset.role)));
 document.querySelector('#sound').addEventListener('click', e => { e.currentTarget.classList.toggle('muted'); e.currentTarget.textContent = e.currentTarget.classList.contains('muted') ? '×' : '♪'; });
-addEventListener('keydown', e => { const key = e.key.toLowerCase(); keys.add(key); if (key === 'e' && !e.repeat) interact(); if (key === '1' && !e.repeat) build(); if (key === '2' && !e.repeat) buildSettlement(); if (key === 'escape' && player) location.reload(); });
+document.querySelectorAll('[data-build]').forEach(button => button.addEventListener('click', () => ({ campfire: build, settlement: buildSettlement, watchtower: () => buildDefense('watchtower'), wall: () => buildDefense('wall') })[button.dataset.build]()));
+addEventListener('keydown', e => { const key = e.key.toLowerCase(); if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) e.preventDefault(); keys.add(key); if (key === 'e' && !e.repeat) interact(); if (key === '1' && !e.repeat) build(); if (key === '2' && !e.repeat) buildSettlement(); if (key === '3' && !e.repeat) buildDefense('watchtower'); if (key === '4' && !e.repeat) buildDefense('wall'); if (key === 'escape' && player) location.reload(); });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 addEventListener('resize', resize); resize(); requestAnimationFrame(loop);

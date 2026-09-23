@@ -20,6 +20,25 @@ export function createPlayer(role = 'human') {
 }
 
 export const SETTLEMENT_COST = { wood: 8, stone: 6 };
+export const BUILDINGS = {
+  campfire: { wood: 4, stone: 2 },
+  settlement: SETTLEMENT_COST,
+  watchtower: { wood: 6, stone: 4 },
+  wall: { wood: 2, stone: 2 },
+};
+
+export function canAfford(player, type) {
+  const cost = BUILDINGS[type];
+  return Boolean(cost && player.role === 'human' && player.wood >= cost.wood && player.stone >= cost.stone);
+}
+
+export function spendBuilding(player, type) {
+  if (!canAfford(player, type)) return false;
+  const cost = BUILDINGS[type];
+  player.wood -= cost.wood;
+  player.stone -= cost.stone;
+  return true;
+}
 
 export function createResource(type, x, y) {
   return {
@@ -77,23 +96,17 @@ export function cycleState(elapsed, duration = 120) {
 }
 
 export function canBuildCampfire(player) {
-  return player.role === 'human' && player.wood >= 4 && player.stone >= 2;
+  return canAfford(player, 'campfire');
 }
 
 export function spendCampfire(player) {
-  if (!canBuildCampfire(player)) return false;
-  player.wood -= 4;
-  player.stone -= 2;
-  return true;
+  return spendBuilding(player, 'campfire');
 }
 
 export function canBuildSettlement(player) {
-  return player.role === 'human' && player.wood >= SETTLEMENT_COST.wood && player.stone >= SETTLEMENT_COST.stone;
+  return canAfford(player, 'settlement');
 }
 
 export function spendSettlement(player) {
-  if (!canBuildSettlement(player)) return false;
-  player.wood -= SETTLEMENT_COST.wood;
-  player.stone -= SETTLEMENT_COST.stone;
-  return true;
+  return spendBuilding(player, 'settlement');
 }
