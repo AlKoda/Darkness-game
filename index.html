@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090b14" />
+    <meta name="description" content="Veilfall — a multiplayer survival game of light and hunger." />
+    <title>Veilfall</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Press+Start+2P&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game" aria-label="Veilfall game world"></canvas>
+
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Veilfall home">
+          <span class="brand-mark">V</span>
+          <span><b>VEILFALL</b><small>THE NIGHT REMEMBERS</small></span>
+        </a>
+        <div class="world-status"><i></i><span>WORLD 01</span><b>12 ONLINE</b></div>
+        <button class="sound" id="sound" aria-label="Toggle sound">♪</button>
+      </header>
+
+      <section class="hero" id="hero">
+        <p class="eyebrow">THE VEIL IS THINNING</p>
+        <h1>Choose your<br /><em>fate.</em></h1>
+        <p class="lede">Build against the dark, or become what hunts within it.<br />Every night changes the world.</p>
+
+        <div class="paths">
+          <button class="path human" data-role="human">
+            <span class="path-number">01</span>
+            <span class="pixel-icon human-icon" aria-hidden="true"></span>
+            <span class="path-copy">
+              <small>THE LAST LIGHT</small>
+              <strong>HUMAN</strong>
+              <span>Harvest. Build. Endure.</span>
+              <span class="traits"><i>BUILD</i><i>LEVEL UP</i><i>CRAFT</i></span>
+            </span>
+            <span class="arrow">→</span>
+          </button>
+          <button class="path monster" data-role="monster">
+            <span class="path-number">02</span>
+            <span class="pixel-icon monster-icon" aria-hidden="true"></span>
+            <span class="path-copy">
+              <small>THE ENDLESS HUNGER</small>
+              <strong>MONSTER</strong>
+              <span>Hunt. Absorb. Evolve.</span>
+              <span class="traits"><i>EVOLVE</i><i>NIGHT VISION</i><i>DEVOUR</i></span>
+            </span>
+            <span class="arrow">→</span>
+          </button>
+        </div>
+        <p class="hint">WASD TO MOVE&nbsp;&nbsp;•&nbsp;&nbsp;E TO INTERACT&nbsp;&nbsp;•&nbsp;&nbsp;SURVIVE THE NIGHT</p>
+      </section>
+
+      <section class="hud hidden" id="hud">
+        <div class="player-card"><span class="portrait" id="portrait">H</span><div><small id="role-label">HUMAN · LEVEL 1</small><div class="health"><i id="health-bar"></i></div></div></div>
+        <div class="cycle"><small id="cycle-label">DUSK APPROACHES</small><div class="cycle-track"><i id="cycle-bar"></i></div><b id="clock">01:20</b></div>
+        <div class="resources"><span>WOOD <b id="wood">0</b></span><span>STONE <b id="stone">0</b></span><span id="essence-wrap">ESSENCE <b id="essence">0</b></span></div>
+        <div class="help"><b>WASD</b> MOVE <b>E</b> HARVEST <b>1</b> CAMPFIRE <b>ESC</b> MENU</div>
+      </section>
+
+      <aside class="event hidden" id="event"><small>WORLD EVENT</small><b id="event-title">NIGHT FALLS</b><span id="event-copy">Stay within the light.</span></aside>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
