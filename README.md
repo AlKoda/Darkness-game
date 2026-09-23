@@ -12,20 +12,6 @@ Choose **Human** or **Monster**, move with WASD/arrow keys, and interact with ne
 
 The project has no runtime dependencies. The included Node development server runs at `http://localhost:4173`.
 
-## Asset layout
-
-Source sprite sheets belong in `public/assets`, grouped by purpose:
-
-```text
-public/assets/
-├── buildings/
-├── characters/
-├── effects/
-└── environment/
-```
-
-These directories are tracked so art can be added without changing the engine's project structure.
-
 ## Engine direction
 
 The prototype deliberately separates deterministic game rules (`src/systems.js`) from browser input/rendering (`src/main.js`). The next multiplayer milestone should move those same rules into an authoritative server tick and exchange compact player inputs/snapshots over WebSockets.
