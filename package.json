@@ -1,0 +1,11 @@
+{
+  "name": "veilfall",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/serve.js",
+    "build": "node scripts/build.js",
+    "test": "node --test"
+  }
+}
