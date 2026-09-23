@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canBuildCampfire, canBuildSettlement, createPlayer, createResource, cycleState, spendCampfire, spendSettlement, strikeResource, updateResourceState } from '../src/systems.js';
+import { canAfford, canBuildCampfire, canBuildSettlement, createPlayer, createResource, cycleState, spendBuilding, spendCampfire, spendSettlement, strikeResource, updateResourceState } from '../src/systems.js';
 
 test('creates role-specific players', () => {
   assert.equal(createPlayer('human').role, 'human');
@@ -53,4 +53,15 @@ test('settlement consumes resources for humans only', () => {
   assert.equal(spendSettlement(player), true);
   assert.deepEqual([player.wood, player.stone], [0, 0]);
   assert.equal(canBuildSettlement({ ...player, role: 'monster', wood: 20, stone: 20 }), false);
+});
+
+test('watchtowers and walls use the shared building economy', () => {
+  const player = { ...createPlayer('human'), wood: 8, stone: 6 };
+  assert.equal(canAfford(player, 'watchtower'), true);
+  assert.equal(spendBuilding(player, 'watchtower'), true);
+  assert.deepEqual([player.wood, player.stone], [2, 2]);
+  assert.equal(spendBuilding(player, 'wall'), true);
+  assert.deepEqual([player.wood, player.stone], [0, 0]);
+  assert.equal(spendBuilding(player, 'unknown'), false);
+  assert.equal(canAfford({ ...player, role: 'monster', wood: 99, stone: 99 }, 'wall'), false);
 });
