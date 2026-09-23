@@ -1,5 +1,5 @@
 import './style.css';
-import { WORLD_SIZE, clamp, createPlayer, cycleState, spendCampfire } from './systems.js';
+import { WORLD_SIZE, clamp, createPlayer, createResource, cycleState, spendCampfire, spendSettlement, strikeResource, updateResourceState } from './systems.js';
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
@@ -10,6 +10,7 @@ const ui = {
   role: document.querySelector('#role-label'), portrait: document.querySelector('#portrait'), health: document.querySelector('#health-bar'),
   wood: document.querySelector('#wood'), stone: document.querySelector('#stone'), essence: document.querySelector('#essence'), essenceWrap: document.querySelector('#essence-wrap'),
   cycle: document.querySelector('#cycle-label'), cycleBar: document.querySelector('#cycle-bar'), clock: document.querySelector('#clock'),
+  objective: document.querySelector('#objective'),
 };
 
 let player = null;
@@ -17,12 +18,15 @@ let startedAt = 0;
 let lastTime = performance.now();
 let camera = { x: 0, y: 0 };
 let fires = [];
+let settlements = [];
+let action = { type: 'idle', until: 0 };
 const keys = new Set();
 const particles = Array.from({ length: 70 }, (_, i) => ({ x: (i * 349) % WORLD_SIZE, y: (i * 197) % WORLD_SIZE, s: i % 3 + 1 }));
-const resources = Array.from({ length: 90 }, (_, i) => ({
-  x: 100 + (i * 277) % (WORLD_SIZE - 200), y: 100 + (i * 431) % (WORLD_SIZE - 200),
-  type: i % 3 ? 'tree' : 'rock', alive: true,
-}));
+const resources = Array.from({ length: 90 }, (_, i) => createResource(
+  i % 3 ? 'tree' : 'rock',
+  100 + (i * 277) % (WORLD_SIZE - 200),
+  100 + (i * 431) % (WORLD_SIZE - 200),
+));
 
 function resize() {
   const dpr = Math.min(devicePixelRatio, 2);
@@ -52,17 +56,29 @@ function showEvent(title, copy) {
 
 function interact() {
   if (!player) return;
+  const home = settlements.find(s => Math.hypot(s.x - player.x, s.y - player.y) < 78);
+  if (home && player.role === 'human') {
+    player.insideSettlement = !player.insideSettlement;
+    showEvent(player.insideSettlement ? 'WELCOME HOME' : 'BACK TO THE WILD', player.insideSettlement ? 'Sheltered, safe, and slowly healing.' : 'Your settlement will be waiting.');
+    return;
+  }
   let nearest = null; let distance = 70;
   for (const resource of resources) {
-    if (!resource.alive) continue;
+    if (resource.state === 'destroyed' || resource.state === 'falling') continue;
     const d = Math.hypot(resource.x - player.x, resource.y - player.y);
     if (d < distance) { nearest = resource; distance = d; }
   }
   if (!nearest) return;
-  nearest.alive = false;
-  if (player.role === 'human') nearest.type === 'tree' ? player.wood += 2 : player.stone += 2;
-  else player.essence += nearest.type === 'tree' ? 1 : 2;
-  setTimeout(() => { nearest.alive = true; }, 9000);
+  action = { type: nearest.type === 'tree' ? 'chop' : 'mine', until: performance.now() + 260 };
+  const result = strikeResource(nearest, performance.now());
+  if (result.felled) showEvent('TIMBER!', 'The trunk is down. Chop it twice to collect wood.');
+  if (result.collected && player.role === 'human') {
+    player.wood += result.collected.wood || 0;
+    player.stone += result.collected.stone || 0;
+    showEvent(result.collected.wood ? 'WOOD COLLECTED' : 'STONE COLLECTED', result.collected.wood ? '+4 wood — the fallen trunk is cleared.' : '+3 stone — the boulder is broken.');
+  } else if (result.collected) {
+    player.essence += nearest.type === 'tree' ? 1 : 2;
+  }
 }
 
 function build() {
@@ -71,42 +87,105 @@ function build() {
   else if (player.role === 'human') showEvent('NOT ENOUGH', 'Campfire requires 4 wood + 2 stone.');
 }
 
+function buildSettlement() {
+  if (!player || player.role !== 'human') return;
+  if (!spendSettlement(player)) {
+    showEvent('MORE MATERIALS NEEDED', 'A settlement requires 8 wood + 6 stone.');
+    return;
+  }
+  settlements.push({ x: player.x, y: player.y, foundedAt: performance.now() });
+  player.insideSettlement = true;
+  showEvent('SETTLEMENT FOUNDED', 'You are home. Press E by the door to enter or leave.');
+}
+
 function update(dt, now) {
   if (!player) return;
+  resources.forEach(resource => updateResourceState(resource, now));
   let dx = Number(keys.has('d') || keys.has('arrowright')) - Number(keys.has('a') || keys.has('arrowleft'));
   let dy = Number(keys.has('s') || keys.has('arrowdown')) - Number(keys.has('w') || keys.has('arrowup'));
   if (dx && dy) { dx *= 0.707; dy *= 0.707; }
-  player.x = clamp(player.x + dx * player.speed * dt, 30, WORLD_SIZE - 30);
-  player.y = clamp(player.y + dy * player.speed * dt, 30, WORLD_SIZE - 30);
+  if (!player.insideSettlement) {
+    player.x = clamp(player.x + dx * player.speed * dt, 30, WORLD_SIZE - 30);
+    player.y = clamp(player.y + dy * player.speed * dt, 30, WORLD_SIZE - 30);
+  } else {
+    player.health = Math.min(100, player.health + dt * 5);
+  }
   camera.x += (player.x - innerWidth / 2 - camera.x) * Math.min(1, dt * 7);
   camera.y += (player.y - innerHeight / 2 - camera.y) * Math.min(1, dt * 7);
 
   const cycle = cycleState((now - startedAt) / 1000);
   if (cycle.night && player.role === 'human') {
-    const safe = fires.some(f => Math.hypot(f.x - player.x, f.y - player.y) < 145);
+    const safe = player.insideSettlement || fires.some(f => Math.hypot(f.x - player.x, f.y - player.y) < 145);
     if (!safe) player.health = Math.max(0, player.health - dt * 2.5);
   }
   ui.health.style.width = `${player.health}%`; ui.wood.textContent = player.wood; ui.stone.textContent = player.stone; ui.essence.textContent = player.essence;
   ui.cycle.textContent = cycle.night ? 'NIGHT HAS FALLEN' : cycle.progress > .4 ? 'DUSK APPROACHES' : 'DAYLIGHT';
   ui.cycleBar.style.width = `${cycle.progress * 100}%`;
   ui.clock.textContent = `${String(Math.floor(cycle.secondsLeft / 60)).padStart(2, '0')}:${String(cycle.secondsLeft % 60).padStart(2, '0')}`;
+  if (player.role === 'human') {
+    ui.objective.innerHTML = settlements.length
+      ? `<small>HOME STATUS</small><b>${player.insideSettlement ? 'SAFE INSIDE' : 'SETTLEMENT BUILT'}</b><span>${player.insideSettlement ? 'Resting · health regenerating' : 'Return to the door and press E'}</span>`
+      : `<small>NEXT GOAL</small><b>FOUND A SETTLEMENT</b><span>${player.wood}/8 wood · ${player.stone}/6 stone</span>`;
+  } else ui.objective.classList.add('hidden');
 }
 
 function rect(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
 
-function drawTree(x, y) {
+function drawStandingTree(x, y) {
   rect(x - 4, y + 7, 8, 18, '#5f4030'); rect(x - 13, y - 11, 26, 21, '#183d35');
   rect(x - 8, y - 18, 18, 12, '#245446'); rect(x - 15, y - 4, 7, 9, '#2c6754'); rect(x - 5, y - 14, 5, 4, '#43806a');
 }
 
-function drawRock(x, y) { rect(x - 12, y - 6, 24, 14, '#49535d'); rect(x - 7, y - 11, 14, 7, '#68727a'); rect(x + 4, y - 5, 7, 5, '#353e48'); }
+function drawTree(resource, now) {
+  const shake = now < resource.shakeUntil ? Math.sin(now * .12) * 3 : 0;
+  if (resource.state === 'fallen') {
+    rect(resource.x - 25, resource.y + 8, 50, 9, '#66432f'); rect(resource.x - 19, resource.y + 5, 4, 4, '#8a6041');
+    rect(resource.x + 25, resource.y + 9, 4, 7, '#bd9462');
+    return;
+  }
+  const fall = resource.state === 'falling' ? Math.min(1, (now - resource.stateChangedAt) / 650) : 0;
+  ctx.save(); ctx.translate(resource.x + shake, resource.y + 25); ctx.rotate(fall * Math.PI / 2); drawStandingTree(0, -25); ctx.restore();
+}
 
-function drawPlayer(x, y) {
+function drawRock(resource, now) {
+  const x = resource.x + (now < resource.shakeUntil ? Math.sin(now * .15) * 2 : 0); const y = resource.y;
+  rect(x - 12, y - 6, 24, 14, '#49535d'); rect(x - 7, y - 11, 14, 7, '#68727a'); rect(x + 4, y - 5, 7, 5, '#353e48');
+  if (resource.hits) rect(x - 1, y - 8, 2, 8, '#252c32');
+}
+
+function drawSettlement(home) {
+  ctx.fillStyle = 'rgba(229,174,91,.08)'; ctx.fillRect(home.x - 58, home.y - 54, 116, 108);
+  rect(home.x - 54, home.y - 51, 108, 6, '#74705d'); rect(home.x - 54, home.y + 45, 108, 6, '#74705d');
+  rect(home.x - 54, home.y - 45, 6, 90, '#74705d'); rect(home.x + 48, home.y - 45, 6, 90, '#74705d');
+  rect(home.x - 33, home.y - 27, 66, 51, '#6d4935'); rect(home.x - 39, home.y - 32, 78, 9, '#a06b47');
+  rect(home.x - 9, home.y + 3, 18, 21, '#241d1a'); rect(home.x - 4, home.y + 7, 4, 4, '#e8ad51');
+  rect(home.x - 27, home.y - 16, 12, 10, '#d3a85f'); rect(home.x + 15, home.y - 16, 12, 10, '#d3a85f');
+  rect(home.x - 48, home.y + 42, 16, 9, '#373f35'); rect(home.x + 32, home.y + 42, 16, 9, '#373f35');
+}
+
+function drawPlayer(x, y, now) {
+  const moving = keys.has('w') || keys.has('a') || keys.has('s') || keys.has('d') || keys.has('arrowup') || keys.has('arrowleft') || keys.has('arrowdown') || keys.has('arrowright');
+  const bob = moving ? Math.round(Math.sin(now / 85) * 2) : 0;
+  const swing = now < action.until ? Math.round(Math.sin((action.until - now) / 260 * Math.PI) * 7) : 0;
+  y += bob;
   if (player.role === 'human') {
     rect(x - 7, y - 12, 14, 18, '#d4a96a'); rect(x - 9, y - 5, 18, 13, '#344d62'); rect(x - 6, y + 8, 5, 8, '#17232c'); rect(x + 2, y + 8, 5, 8, '#17232c'); rect(x + 4, y - 10, 2, 2, '#151a22');
+    if (now < action.until) { rect(x + 9 + swing, y - 8, 3, 18, '#8d6039'); rect(x + 6 + swing, y - 10, 9, 5, '#a9afb0'); }
   } else {
     rect(x - 13, y - 5, 26, 15, '#893f64'); rect(x - 9, y - 10, 18, 7, '#af5778'); rect(x - 8, y + 10, 6, 4, '#562b4d'); rect(x + 4, y + 10, 6, 4, '#562b4d'); rect(x - 6, y - 5, 3, 3, '#f5d678'); rect(x + 4, y - 5, 3, 3, '#f5d678');
   }
+}
+
+function drawPrompt(now) {
+  if (!player || player.insideSettlement) return;
+  const home = settlements.find(s => Math.hypot(s.x - player.x, s.y - player.y) < 78);
+  const resource = resources.find(r => r.state !== 'destroyed' && r.state !== 'falling' && Math.hypot(r.x - player.x, r.y - player.y) < 70);
+  if (!home && !resource) return;
+  const x = player.x; const y = player.y - 37 + Math.sin(now / 220) * 2;
+  rect(x - 44, y - 9, 88, 18, '#090d12dd');
+  ctx.fillStyle = '#e8dfc8'; ctx.font = '8px "Press Start 2P"'; ctx.textAlign = 'center';
+  ctx.fillText(home ? '[E] ENTER' : resource.type === 'tree' && resource.state === 'fallen' ? '[E] CHOP LOG' : resource.type === 'tree' ? '[E] CHOP' : '[E] MINE', x, y + 3);
+  ctx.textAlign = 'start';
 }
 
 function render(now) {
@@ -123,9 +202,10 @@ function render(now) {
   }
   ctx.save(); ctx.translate(-camera.x, -camera.y);
   for (const p of particles) rect(p.x, p.y, p.s, p.s, '#385146');
-  resources.forEach(r => r.alive && (r.type === 'tree' ? drawTree(r.x, r.y) : drawRock(r.x, r.y)));
+  resources.forEach(r => r.state !== 'destroyed' && (r.type === 'tree' ? drawTree(r, now) : drawRock(r, now)));
+  settlements.forEach(drawSettlement);
   fires.forEach((f, i) => { ctx.fillStyle = 'rgba(239,166,70,.12)'; ctx.beginPath(); ctx.arc(f.x, f.y, 145, 0, Math.PI * 2); ctx.fill(); rect(f.x - 9, f.y + 4, 18, 5, '#5e392b'); rect(f.x - 5, f.y - 8 - (i + Math.floor(now / 250)) % 3, 10, 13, '#ef6c3d'); rect(f.x - 2, f.y - 5, 5, 8, '#ffd16b'); });
-  if (player) drawPlayer(player.x, player.y);
+  if (player && !player.insideSettlement) { drawPlayer(player.x, player.y, now); drawPrompt(now); }
   ctx.restore();
 
   rect(0, 0, innerWidth, innerHeight, `rgba(4, 6, 14, ${nightAlpha})`);
@@ -139,6 +219,6 @@ function loop(now) { const dt = Math.min(.05, (now - lastTime) / 1000); lastTime
 
 document.querySelectorAll('[data-role]').forEach(button => button.addEventListener('click', () => start(button.dataset.role)));
 document.querySelector('#sound').addEventListener('click', e => { e.currentTarget.classList.toggle('muted'); e.currentTarget.textContent = e.currentTarget.classList.contains('muted') ? '×' : '♪'; });
-addEventListener('keydown', e => { const key = e.key.toLowerCase(); keys.add(key); if (key === 'e' && !e.repeat) interact(); if (key === '1' && !e.repeat) build(); if (key === 'escape' && player) location.reload(); });
+addEventListener('keydown', e => { const key = e.key.toLowerCase(); keys.add(key); if (key === 'e' && !e.repeat) interact(); if (key === '1' && !e.repeat) build(); if (key === '2' && !e.repeat) buildSettlement(); if (key === 'escape' && player) location.reload(); });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 addEventListener('resize', resize); resize(); requestAnimationFrame(loop);
