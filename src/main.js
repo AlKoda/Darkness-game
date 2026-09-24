@@ -3,6 +3,7 @@ import {
   canPlaceBuilding, createPlayer, createResource, cycleState, moveWithCollisions,
   resourceBounds, snapToGrid, spendBuilding, strikeResource, updateResourceState,
 } from './systems.js';
+import { ART_DATA } from './art-data.js';
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
@@ -15,14 +16,38 @@ const ui = {
   objective: document.querySelector('#objective'), buildbar: document.querySelector('#buildbar'), buildHint: document.querySelector('#build-hint'),
 };
 const assetPaths = {
-  human: './public/assets/characters/human.svg', monster: './public/assets/characters/monster.svg',
-  tree: './public/assets/environment/tree.svg', rock: './public/assets/environment/rock.svg',
-  campfire: './public/assets/buildings/campfire.svg', settlement: './public/assets/buildings/settlement.svg',
+  human: ART_DATA.human, monster: './public/assets/characters/monster.svg',
+  tree: ART_DATA.tree, rock: ART_DATA.rock, ground: ART_DATA.ground,
+  campfire: ART_DATA.campfire, settlement: ART_DATA.settlement,
   watchtower: './public/assets/buildings/watchtower.svg', wall: './public/assets/buildings/wall.svg',
 };
-const sprites = Object.fromEntries(Object.entries(assetPaths).map(([name, src]) => {
-  const image = new Image(); image.src = src; return [name, image];
-}));
+const sprites = {};
+function removeSheetBackdrop(image) {
+  const buffer = document.createElement('canvas');
+  buffer.width = image.naturalWidth; buffer.height = image.naturalHeight;
+  const bufferCtx = buffer.getContext('2d', { willReadFrequently: true });
+  bufferCtx.drawImage(image, 0, 0);
+  const pixels = bufferCtx.getImageData(0, 0, buffer.width, buffer.height);
+  const seen = new Uint8Array(buffer.width * buffer.height); const queue = [];
+  const add = (x, y) => { const point = y * buffer.width + x; if (!seen[point]) { seen[point] = 1; queue.push(point); } };
+  for (let x = 0; x < buffer.width; x += 1) { add(x, 0); add(x, buffer.height - 1); }
+  for (let y = 0; y < buffer.height; y += 1) { add(0, y); add(buffer.width - 1, y); }
+  while (queue.length) {
+    const point = queue.pop(); const offset = point * 4;
+    const dark = Math.max(pixels.data[offset], pixels.data[offset + 1], pixels.data[offset + 2]) < 28;
+    if (!dark) continue;
+    pixels.data[offset + 3] = 0;
+    const x = point % buffer.width; const y = Math.floor(point / buffer.width);
+    if (x) add(x - 1, y); if (x + 1 < buffer.width) add(x + 1, y);
+    if (y) add(x, y - 1); if (y + 1 < buffer.height) add(x, y + 1);
+  }
+  bufferCtx.putImageData(pixels, 0, 0); return buffer;
+}
+Object.entries(assetPaths).forEach(([name, src]) => {
+  const image = new Image(); sprites[name] = image;
+  image.addEventListener('load', () => { if (ART_DATA[name]) sprites[name] = removeSheetBackdrop(image); }, { once: true });
+  image.src = src;
+});
 
 let player = null; let startedAt = 0; let lastTime = performance.now();
 let camera = { x: 0, y: 0 }; let facing = { x: 0, y: 1 }; let action = null; let placement = null;
@@ -110,25 +135,34 @@ function update(dt, now) {
 }
 function rect(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
 function sprite(name, x, y, w, h, alpha = 1) { const img = sprites[name]; if (!img.complete || !img.naturalWidth) return false; ctx.save(); ctx.globalAlpha = alpha; ctx.drawImage(img, Math.round(x - w / 2), Math.round(y - h / 2), w, h); ctx.restore(); return true; }
+function sheetSprite(name, column, row, cellWidth, cellHeight, x, y, width, height, alpha = 1, flip = false) {
+  const img = sprites[name]; const ready = img && (img.complete || img instanceof HTMLCanvasElement) && (img.naturalWidth || img.width);
+  if (!ready) return false;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.translate(Math.round(x), Math.round(y));
+  if (flip) ctx.scale(-1, 1);
+  ctx.drawImage(img, column * cellWidth, row * cellHeight, cellWidth, cellHeight, Math.round(-width / 2), Math.round(-height / 2), width, height);
+  ctx.restore(); return true;
+}
 function footprint(bounds, color = 'rgba(199,174,117,.28)') { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.strokeRect(Math.round(bounds.x - bounds.halfWidth), Math.round(bounds.y - bounds.halfHeight), bounds.halfWidth * 2, bounds.halfHeight * 2); }
 function drawResource(resource, now) {
   const shake = now < resource.shakeUntil ? Math.sin(now * .15) * 2 : 0; const bounds = resourceBounds(resource); if (bounds) footprint(bounds, 'rgba(115,151,125,.28)');
-  if (resource.type === 'rock') sprite('rock', resource.x + shake, resource.y - 6, 48, 48);
-  else if (resource.state === 'fallen') { ctx.save(); ctx.translate(resource.x, resource.y + 9); ctx.rotate(Math.PI / 2); sprite('tree', 0, 0, 48, 64); ctx.restore(); }
-  else { const fall = resource.state === 'falling' ? Math.min(1, (now - resource.stateChangedAt) / 650) : 0; ctx.save(); ctx.translate(resource.x + shake, resource.y + 20); ctx.rotate(fall * Math.PI / 2); sprite('tree', 0, -20, 48, 64); ctx.restore(); }
+  if (resource.type === 'rock') sheetSprite('rock', Math.min(7, resource.hits * 2), 0, 64, 64, resource.x + shake, resource.y - 6, 58, 58);
+  else if (resource.state === 'fallen') sheetSprite('tree', 4 + (Math.floor(resource.x) % 4), 2, 64, 64, resource.x, resource.y + 5, 70, 70);
+  else { const fall = resource.state === 'falling' ? Math.min(1, (now - resource.stateChangedAt) / 650) : 0; ctx.save(); ctx.translate(resource.x + shake, resource.y + 20); ctx.rotate(fall * Math.PI / 2); sheetSprite('tree', Math.floor(resource.x / 10) % 8, 0, 64, 64, 0, -20, 70, 70); ctx.restore(); }
 }
 function drawBuilding(building, now, ghost = false) {
   const bounds = buildingBounds(building); footprint(bounds, ghost ? (placementValid() ? '#79c58b' : '#d05e55') : 'rgba(209,177,109,.35)');
-  if (building.type === 'campfire') { if (!ghost) { ctx.fillStyle = 'rgba(239,166,70,.11)'; ctx.beginPath(); ctx.arc(building.x, building.y, 145, 0, Math.PI * 2); ctx.fill(); } sprite('campfire', building.x, building.y - 5, 48, 40, ghost ? .55 : 1); }
-  if (building.type === 'settlement') sprite('settlement', building.x, building.y - 10, 116, 96, ghost ? .55 : 1);
-  if (building.type === 'watchtower') sprite('watchtower', building.x, building.y - 15, 64, 72, ghost ? .55 : 1);
+  if (building.type === 'campfire') { if (!ghost) { ctx.fillStyle = 'rgba(239,166,70,.11)'; ctx.beginPath(); ctx.arc(building.x, building.y, 145, 0, Math.PI * 2); ctx.fill(); } sheetSprite('campfire', ghost ? 2 : 1 + Math.floor(now / 90) % 6, 0, 64, 64, building.x, building.y - 5, 58, 58, ghost ? .55 : 1); }
+  if (building.type === 'settlement') sheetSprite('settlement', 0, 0, 128, 128, building.x, building.y - 22, 128, 128, ghost ? .55 : 1);
+  if (building.type === 'watchtower') sheetSprite('settlement', 2, 1, 128, 128, building.x, building.y - 32, 104, 104, ghost ? .55 : 1);
   if (building.type === 'wall') { ctx.save(); ctx.translate(building.x, building.y); if (building.rotation % 2) ctx.rotate(Math.PI / 2); sprite('wall', 0, -5, 64, 48, ghost ? .55 : 1); ctx.restore(); }
 }
 function drawPlayer(now) {
   const moving = [...keys].some(k => ['w','a','s','d','arrowup','arrowleft','arrowdown','arrowright'].includes(k));
   const direction = Math.abs(facing.x) > Math.abs(facing.y) ? (facing.x > 0 ? 2 : 1) : (facing.y > 0 ? 0 : 3);
-  const frame = action ? Math.min(3, Math.floor((now - action.startedAt) / (HARVEST_DURATION / 4))) : moving ? Math.floor(now / 110) % 4 : 0;
-  const img = sprites[player.role]; if (img.complete && img.naturalWidth) ctx.drawImage(img, frame * 32, direction * 40, 32, 40, Math.round(player.x - 16), Math.round(player.y - 25), 32, 40);
+  const frame = action ? Math.min(7, Math.floor((now - action.startedAt) / (HARVEST_DURATION / 8))) : moving ? Math.floor(now / 90) % 8 : Math.floor(now / 260) % 8;
+  if (player.role === 'human') sheetSprite('human', frame, action ? 4 : moving ? 1 : 0, 64, 64, player.x, player.y - 16, 64, 64, 1, facing.x < 0);
+  else { const img = sprites.monster; if (img.complete && img.naturalWidth) ctx.drawImage(img, (frame % 4) * 32, direction * 40, 32, 40, Math.round(player.x - 16), Math.round(player.y - 25), 32, 40); }
   if (action) { const progress = Math.min(1, (now - action.startedAt) / HARVEST_DURATION); ctx.strokeStyle = '#e6bd6b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(player.x, player.y - 31, 13, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2); ctx.stroke(); }
 }
 function drawPrompt(now) {
@@ -138,8 +172,13 @@ function drawPrompt(now) {
 }
 function render(now) {
   const cycle = cycleState(player ? (now - startedAt) / 1000 : 48); const nightAlpha = player && cycle.night ? Math.min(.72, .38 + (cycle.progress - .55)) : .08;
-  ctx.clearRect(0, 0, innerWidth, innerHeight); rect(0, 0, innerWidth, innerHeight, '#101b1b');
-  for (let x = -(camera.x % GRID_SIZE); x < innerWidth; x += GRID_SIZE) for (let y = -(camera.y % GRID_SIZE); y < innerHeight; y += GRID_SIZE) { const odd = (Math.floor((x + camera.x) / GRID_SIZE) + Math.floor((y + camera.y) / GRID_SIZE)) % 2; rect(x, y, GRID_SIZE, GRID_SIZE, odd ? '#152322' : '#172725'); if (placement) { ctx.strokeStyle = 'rgba(205,185,139,.13)'; ctx.lineWidth = 1; ctx.strokeRect(Math.round(x)+.5, Math.round(y)+.5, GRID_SIZE, GRID_SIZE); } }
+  ctx.clearRect(0, 0, innerWidth, innerHeight); rect(0, 0, innerWidth, innerHeight, '#171b12');
+  for (let y = -32 - (camera.y % 32); y < innerHeight + 32; y += 32) for (let x = -64 - (camera.x % 64); x < innerWidth + 64; x += 64) {
+    const worldRow = Math.floor((y + camera.y) / 32); const worldColumn = Math.floor((x + camera.x) / 64);
+    const offset = worldRow % 2 ? 32 : 0; const variant = Math.abs(worldColumn * 3 + worldRow * 5) % 16;
+    sheetSprite('ground', variant % 4, Math.floor(variant / 4), 64, 32, x + offset + 32, y + 16, 64, 32);
+  }
+  if (placement) for (let x = -(camera.x % GRID_SIZE); x < innerWidth; x += GRID_SIZE) for (let y = -(camera.y % GRID_SIZE); y < innerHeight; y += GRID_SIZE) { ctx.strokeStyle = 'rgba(205,185,139,.18)'; ctx.lineWidth = 1; ctx.strokeRect(Math.round(x)+.5, Math.round(y)+.5, GRID_SIZE, GRID_SIZE); }
   ctx.save(); ctx.translate(-camera.x, -camera.y); for (const p of particles) rect(p.x, p.y, p.s, p.s, '#385146');
   resources.forEach(r => r.state !== 'destroyed' && drawResource(r, now)); buildings.forEach(b => drawBuilding(b, now)); if (placement) drawBuilding(placement, now, true);
   if (player && !player.insideSettlement) { drawPlayer(now); drawPrompt(now); } ctx.restore();
