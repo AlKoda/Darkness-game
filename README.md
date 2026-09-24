@@ -1,6 +1,6 @@
 # Veilfall
 
-A browser-first pixel survival prototype about the struggle between human settlement builders and evolving monsters.
+A browser-first pixel survival prototype about the struggle between human settlement builders and evolving monsters. The supplied sprite sheets are kept as textual data URLs in `src/art-data.js`, which preserves the original pixel art without committing binary image files.
 
 ## Play in your browser
 
