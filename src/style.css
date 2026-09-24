@@ -39,3 +39,7 @@ h1 { margin:0; font:clamp(42px,6.1vw,80px)/1.08 "Press Start 2P"; letter-spacing
 @keyframes slide { from { opacity:0; transform:translateX(30px); } }
 @media (max-width:900px) { .buildbar { right:3vw; bottom:18px; max-width:52vw; flex-wrap:wrap; justify-content:flex-end; }.buildbar button { min-width:128px; height:49px; }.buildbar span small { display:none; }.help { display:none; } }
 @media (max-width:720px) { .world-status { display:none; }.hero { padding-top:115px; overflow:auto; }.paths { grid-template-columns:1fr; padding-bottom:30px; }.path { min-height:145px; }.lede br { display:none; }.hint { display:none; }.resources { top:auto; bottom:130px; }.cycle { top:105px; right:4vw; left:auto; transform:none; width:150px; }.objective { bottom:128px; }.buildbar { max-width:64vw; }.buildbar button { min-width:54px; grid-template-columns:18px 22px; }.buildbar span { display:none; } h1 { letter-spacing:-2px; } }
+.build-hint { position:absolute; left:50%; bottom:126px; transform:translateX(-50%); min-width:410px; padding:11px 16px; text-align:center; border:1px solid #b68d52; background:#0b0e15ed; box-shadow:0 8px 30px #0009; }
+.build-hint b { color:#e2bc76; font:8px "Press Start 2P"; margin-right:14px; }
+.build-hint span { color:#aaa18f; font-size:9px; }
+@media (max-width:720px) { .build-hint { min-width:310px; bottom:185px; } .build-hint span { display:block; margin-top:7px; } }

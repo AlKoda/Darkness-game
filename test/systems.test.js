@@ -65,3 +65,21 @@ test('watchtowers and walls use the shared building economy', () => {
   assert.equal(spendBuilding(player, 'unknown'), false);
   assert.equal(canAfford({ ...player, role: 'monster', wood: 99, stone: 99 }, 'wall'), false);
 });
+
+test('building placement snaps to the grid and rejects occupied footprints', async () => {
+  const { GRID_SIZE, buildingBounds, canPlaceBuilding, snapToGrid } = await import('../src/systems.js');
+  assert.equal(snapToGrid(73), GRID_SIZE * 2);
+  const candidate = { type: 'wall', x: 240, y: 240, rotation: 0 };
+  assert.equal(canPlaceBuilding(candidate, [], [], { x: 100, y: 100 }), true);
+  assert.equal(canPlaceBuilding(candidate, [createResource('rock', 240, 240)], [], { x: 100, y: 100 }), false);
+  assert.equal(canPlaceBuilding(candidate, [], [{ type: 'campfire', x: 240, y: 240, rotation: 0 }], { x: 100, y: 100 }), false);
+  assert.deepEqual(buildingBounds({ type: 'wall', x: 240, y: 240, rotation: 1 }), { x: 240, y: 240, halfWidth: 12, halfHeight: 32 });
+});
+
+test('movement slides against resource and building collision bounds', async () => {
+  const { moveWithCollisions, resourceBounds, buildingBounds } = await import('../src/systems.js');
+  const rock = resourceBounds(createResource('rock', 120, 100));
+  assert.deepEqual(moveWithCollisions({ x: 90, y: 100 }, 20, 10, [rock]), { x: 90, y: 110 });
+  const wall = buildingBounds({ type: 'wall', x: 120, y: 100, rotation: 1 });
+  assert.deepEqual(moveWithCollisions({ x: 90, y: 100 }, 20, 0, [wall]), { x: 90, y: 100 });
+});
