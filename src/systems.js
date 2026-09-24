@@ -1,4 +1,6 @@
 export const WORLD_SIZE = 2400;
+export const GRID_SIZE = 48;
+export const HARVEST_DURATION = 420;
 
 export function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -26,6 +28,68 @@ export const BUILDINGS = {
   watchtower: { wood: 6, stone: 4 },
   wall: { wood: 2, stone: 2 },
 };
+
+export const BUILDING_BOUNDS = {
+  campfire: { halfWidth: 18, halfHeight: 14 },
+  settlement: { halfWidth: 58, halfHeight: 54 },
+  watchtower: { halfWidth: 25, halfHeight: 32 },
+  wall: { halfWidth: 32, halfHeight: 12 },
+};
+
+export function snapToGrid(value, size = GRID_SIZE) {
+  return Math.round(value / size) * size;
+}
+
+export function buildingBounds(building) {
+  const base = BUILDING_BOUNDS[building.type];
+  if (!base) return null;
+  const rotated = building.type === 'wall' && building.rotation % 2;
+  return {
+    x: building.x,
+    y: building.y,
+    halfWidth: rotated ? base.halfHeight : base.halfWidth,
+    halfHeight: rotated ? base.halfWidth : base.halfHeight,
+  };
+}
+
+export function resourceBounds(resource) {
+  if (resource.state === 'destroyed' || resource.state === 'falling') return null;
+  if (resource.type === 'tree') {
+    return resource.state === 'fallen'
+      ? { x: resource.x, y: resource.y + 12, halfWidth: 29, halfHeight: 10 }
+      : { x: resource.x, y: resource.y + 12, halfWidth: 17, halfHeight: 17 };
+  }
+  return { x: resource.x, y: resource.y, halfWidth: 17, halfHeight: 14 };
+}
+
+export function overlaps(a, b, padding = 0) {
+  return Math.abs(a.x - b.x) < a.halfWidth + b.halfWidth + padding
+    && Math.abs(a.y - b.y) < a.halfHeight + b.halfHeight + padding;
+}
+
+export function canPlaceBuilding(candidate, resources = [], buildings = [], player = null) {
+  const bounds = buildingBounds(candidate);
+  if (!bounds) return false;
+  if (bounds.x - bounds.halfWidth < 24 || bounds.y - bounds.halfHeight < 24
+    || bounds.x + bounds.halfWidth > WORLD_SIZE - 24 || bounds.y + bounds.halfHeight > WORLD_SIZE - 24) return false;
+  if (player && overlaps(bounds, { x: player.x, y: player.y, halfWidth: 10, halfHeight: 10 }, 8)) return false;
+  return !resources.some(resource => {
+    const obstacle = resourceBounds(resource);
+    return obstacle && overlaps(bounds, obstacle, 7);
+  }) && !buildings.some(building => overlaps(bounds, buildingBounds(building), 7));
+}
+
+export function moveWithCollisions(position, dx, dy, obstacles, radius = 10) {
+  const result = { x: position.x, y: position.y };
+  const collides = (x, y) => obstacles.some(obstacle => obstacle && overlaps(
+    { x, y, halfWidth: radius, halfHeight: radius }, obstacle,
+  ));
+  const nextX = clamp(result.x + dx, radius, WORLD_SIZE - radius);
+  if (!collides(nextX, result.y)) result.x = nextX;
+  const nextY = clamp(result.y + dy, radius, WORLD_SIZE - radius);
+  if (!collides(result.x, nextY)) result.y = nextY;
+  return result;
+}
 
 export function canAfford(player, type) {
   const cost = BUILDINGS[type];
